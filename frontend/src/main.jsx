@@ -83,6 +83,15 @@ function App() {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [cvJobId, setCvJobId] = useState("");
+  const [cvTitle, setCvTitle] = useState("");
+  const [cvCompany, setCvCompany] = useState("");
+  const [cvDescription, setCvDescription] = useState("");
+  const [cvLanguage, setCvLanguage] = useState("tr");
+  const [cvConsent, setCvConsent] = useState(false);
+  const [cvText, setCvText] = useState("");
+  const [cvNotice, setCvNotice] = useState("");
+  const [cvBusy, setCvBusy] = useState(false);
 
   function adoptProfile(data) {
     setProfile(data);
@@ -214,15 +223,52 @@ function App() {
     finally { setBusy(false); }
   }
 
-  const tabs = [["search", "🔎 İlan Ara"], ["profile", "👤 Profilim"], ["saved", `☆ Kaydedilenler (${savedJobs.length})`]];
+  function chooseCvJob(id) {
+    setCvJobId(id);
+    const job = savedJobs.find(item => item.id === id);
+    if (job) { setCvTitle(job.title); setCvCompany(job.company || ""); }
+    setCvText("");
+    setCvNotice(job ? "İlanın tam açıklamasını aşağıya ekle. Kaynak API'de detaylar yer almıyor." : "");
+  }
+
+  async function createCV(mode) {
+    if (!profileId) { setCvNotice("Önce bir profil oluştur."); return; }
+    if (dirty) { setCvNotice("Önce Profilim sekmesindeki değişiklikleri kaydet."); return; }
+    setCvBusy(true);
+    setCvNotice(mode === "ai" ? "AI CV taslağını hazırlıyor..." : "Yerel taslak hazırlanıyor...");
+    try {
+      const result = await request(mode === "ai" ? "/api/cv/ai" : "/api/cv/draft", {
+        method: "POST",
+        body: JSON.stringify({ profile_id: profileId, job_title: cvTitle.trim(), company: cvCompany,
+          job_description: cvDescription, language: cvLanguage, consent_to_ai: mode === "ai" && cvConsent }),
+      });
+      setCvText(result.cv_text || "");
+      setCvNotice(result.warning || "CV taslağı hazır.");
+    } catch (err) { setCvNotice("CV hazırlanamadı: " + err.message); }
+    finally { setCvBusy(false); }
+  }
+
+  function downloadCV() {
+    const file = new Blob([cvText], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(file);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "AI_Job_Hunter_CV_" + (profile?.name || "profil").replace(/[^a-zA-Z0-9_-]/g, "_") + ".txt";
+    document.body.append(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  const tabs = [["search", "🔎 İlan Ara"], ["profile", "👤 Profilim"], ["saved", `☆ Kaydedilenler (${savedJobs.length})`], ["cv", "✨ CV Studio"]];
   const savedIds = new Set(savedJobs.map(job => job.id));
 
   return <div style={styles.page}><div style={styles.wrap}>
     <header style={{ marginBottom: 22 }}>
-      <div style={{ color: "#a3adff", fontSize: 12, letterSpacing: 2, fontWeight: 700 }}>AI JOB HUNTER · V0.3</div>
+      <div style={{ color: "#a3adff", fontSize: 12, letterSpacing: 2, fontWeight: 700 }}>AI JOB HUNTER · V0.4</div>
       <h1 style={{ margin: "6px 0", fontSize: "clamp(27px, 5vw, 42px)" }}>İş arama kontrol paneli</h1>
-      <p style={styles.muted}>Canlı iş ilanları · Deneyim veritabanı · Kaydedilen ilanlar</p>
-      <p style={{ ...styles.muted, fontSize: 12 }}>AI ile CV oluşturma bir sonraki sürümde gelecek. Bu sürüm CV üretmez veya başvuru göndermez.</p>
+      <p style={styles.muted}>Canlı iş ilanları · Profil veritabanı · İlana özel CV Studio</p>
+      <p style={{ ...styles.muted, fontSize: 12 }}>CV Studio: yerel taslak veya API anahtarıyla AI CV oluşturma. Başvuru gönderimi henüz yok.</p>
     </header>
 
     <section style={{ ...styles.card, padding: 15 }}>
@@ -342,6 +388,55 @@ function App() {
       <p style={{ ...styles.muted, fontSize: 12 }}>Kaydedilen ilanlar, gelecekteki ilana özel CV taslaklarının başlangıç noktası olacak.</p>
     </section>}
 
+    {tab === "cv" && <section style={styles.card}>
+      <h2 style={{ marginTop: 0 }}>✨ İlana Özel CV Studio</h2>
+      <p style={styles.muted}>Kaydedilmiş gerçek profil bilgilerini kullanır. Önce yerel taslak oluşturabilir, API anahtarı kurduktan sonra AI ile ilana göre yeniden yazdırabilirsin.</p>
+      {!profileId && <p>Önce Profilim bölümünde bir profil oluştur.</p>}
+      <label style={styles.label}>Kaydedilmiş ilan seç (isteğe bağlı)
+        <select style={styles.input} value={cvJobId} onChange={e => chooseCvJob(e.target.value)}>
+          <option value="">İlanı kendim gireceğim</option>
+          {savedJobs.map(job => <option key={job.id} value={job.id}>{job.title} — {job.company}</option>)}
+        </select>
+      </label>
+      <div style={styles.grid}>
+        <Field label="Hedef pozisyon" value={cvTitle} onChange={setCvTitle} placeholder="Product Designer" />
+        <Field label="Şirket" value={cvCompany} onChange={setCvCompany} placeholder="İşe alan şirket" />
+      </div>
+      <LongField label="İş ilanı açıklaması (AI için gerekli)" rows={7} value={cvDescription} onChange={setCvDescription}
+        placeholder="İlanda aranan yetkinlikleri ve sorumlulukları buraya yapıştır..." />
+      <label style={styles.label}>CV dili
+        <select style={styles.input} value={cvLanguage} onChange={e => setCvLanguage(e.target.value)}>
+          <option value="tr">Türkçe</option><option value="en">English</option>
+        </select>
+      </label>
+      <div style={{ ...styles.subsection, marginTop: 12 }}>
+        <label style={{ display: "flex", gap: 9, alignItems: "start", lineHeight: 1.5 }}>
+          <input type="checkbox" checked={cvConsent} onChange={e => setCvConsent(e.target.checked)} style={{ marginTop: 5 }} />
+          <span>AI ile CV hazırlarken bu profilin CV için gerekli kişisel bilgileri ve ilan açıklaması OpenAI API'ye gönderilsin. (Yalnızca AI düğmesine bastığımda.)</span>
+        </label>
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+        <button type="button" style={styles.secondary} disabled={cvBusy || !cvTitle.trim() || !profileId}
+          onClick={() => createCV("draft")}>Yerel CV taslağı oluştur</button>
+        <button type="button" style={styles.primary} disabled={cvBusy || !cvTitle.trim() || !profileId || !cvConsent}
+          onClick={() => createCV("ai")}>{cvBusy ? "Hazırlanıyor..." : "✨ AI ile ilana özel CV oluştur"}</button>
+      </div>
+      {cvNotice && <p role="status" style={{ ...styles.muted, marginTop: 14 }}>{cvNotice}</p>}
+      {cvText && <section style={{ marginTop: 22 }}>
+        <h3>Düzenlenebilir CV taslağı</h3>
+        <p style={{ ...styles.muted, fontSize: 13 }}>Metni kontrol edip düzenle. Bu sürüm CV'yi sunucuda ayrıca saklamıyor; indirmeyi unutma.</p>
+        <textarea value={cvText} onChange={e => setCvText(e.target.value)} rows={22}
+          style={{ ...styles.input, fontFamily: "ui-monospace, SFMono-Regular, monospace", lineHeight: 1.6, resize: "vertical" }} />
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <button type="button" style={styles.primary} onClick={downloadCV}>Metin dosyasını indir</button>
+          <button type="button" style={styles.secondary} onClick={() => window.print()}>PDF olarak kaydet (Yazdır → PDF)</button>
+        </div>
+        <div id="printable-cv" style={{ display: "none" }}><pre style={{ whiteSpace: "pre-wrap", fontFamily: "Arial, sans-serif", fontSize: 11, lineHeight: 1.45 }}>{cvText}</pre></div>
+      </section>}
+      <p style={{ ...styles.muted, fontSize: 12, marginTop: 18 }}>AI çıktılarını kontrol et: gerçekte olmayan beceri, tarih veya başarı eklenmemeli. Bu sürüm yerel prototiptir.</p>
+    </section>}
+
+    <style>{`@media print { body * { visibility: hidden !important; } #printable-cv, #printable-cv * { visibility: visible !important; } #printable-cv { display: block !important; position: absolute; top: 0; left: 0; width: 96%; color: black; background: white; padding: 2%; } @page { size: A4; margin: 12mm; } }`}</style>
     <footer style={{ ...styles.muted, fontSize: 12, padding: "8px 0 24px" }}>Yerel prototip · Çoklu profil, kullanıcı girişi yerine geçmez · İnternete açık olarak yayınlamayın</footer>
   </div></div>;
 }
