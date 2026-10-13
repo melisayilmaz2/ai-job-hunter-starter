@@ -1,11 +1,17 @@
-node_modules/
-.venv/
-venv/
-_pyhcache__/
-*.pyc
+# Credentials and local personal data
 .env
 .env.*
 !.env.example
-dist/
-.DS_Store
 *.sqlite3
+*.sqlite3-*
+*.db
+*.db-*
+# Local runtimes
+.venv/
+venv/
+node_modules/
+dist/
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
